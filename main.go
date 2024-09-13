@@ -10,7 +10,6 @@ import (
 	"os"
 	"slices"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -204,13 +203,14 @@ func main() {
 
 	var selections []Selection
 
-	var waitGroup sync.WaitGroup
+	// var waitGroup sync.WaitGroup
+	selectionChannel := make(chan Selection, len(stocks))
 
 	for _, stock := range stocks {
-		waitGroup.Add(1)
+		// waitGroup.Add(1)
 
-		go func(stock Stock) {
-			defer waitGroup.Done()
+		go func(stock Stock, selectionChannel chan<- Selection) {
+			// defer waitGroup.Done()
 			position := caculate(stock.gap, stock.openingPrice)
 
 			articles, err := fetchNews(stock.ticker)
@@ -228,12 +228,20 @@ func main() {
 				Articles: articles,
 			}
 
-			selections = append(selections, selected)
-		}(stock)
+			selectionChannel <- selected
+		}(stock, selectionChannel)
 
 	}
 
-	waitGroup.Wait()
+	// waitGroup.Wait()
+
+	for sel := range selectionChannel {
+		selections = append(selections, sel)
+
+		if len(selections) == len(stocks) {
+			close(selectionChannel)
+		}
+	}
 
 	outputPath := "./Analysis-Result.json"
 	err = Deliver(outputPath, selections)
