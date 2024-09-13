@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -203,26 +204,37 @@ func main() {
 
 	var selections []Selection
 
+	var waitGroup sync.WaitGroup
+
 	for _, stock := range stocks {
-		position := caculate(stock.gap, stock.openingPrice)
+		waitGroup.Add(1)
 
-		articles, err := fetchNews(stock.ticker)
+		go func(stock Stock) {
+			defer waitGroup.Done()
+			position := caculate(stock.gap, stock.openingPrice)
 
-		if err != nil {
-			log.Printf("Error fetching news for %s: %v", stock.ticker, err)
-			continue
-		} else {
-			log.Printf("Successfully fetched %d news for %s", len(articles), stock.ticker)
-		}
+			articles, err := fetchNews(stock.ticker)
 
-		selected := Selection{
-			Ticker:   stock.ticker,
-			Position: position,
-			Articles: articles,
-		}
+			if err != nil {
+				log.Printf("Error fetching news for %s: %v", stock.ticker, err)
+				return
+			} else {
+				log.Printf("Successfully fetched %d news for %s", len(articles), stock.ticker)
+			}
 
-		selections = append(selections, selected)
+			selected := Selection{
+				Ticker:   stock.ticker,
+				Position: position,
+				Articles: articles,
+			}
+
+			selections = append(selections, selected)
+		}(stock)
+
 	}
+
+	waitGroup.Wait()
+
 	outputPath := "./Analysis-Result.json"
 	err = Deliver(outputPath, selections)
 
