@@ -2,11 +2,15 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
+	"time"
 )
 
 type Stock struct {
@@ -93,6 +97,97 @@ func caculate(gapPercent, openingPrice float64) Position {
 type Selection struct {
 	Ticker string
 	Position
+	Articles []Article
+}
+
+type attribute struct {
+	PublishedOn time.Time `json:"publishon"`
+	Title       string    `json:"title"`
+}
+
+type seekingAlphaNews struct {
+	Attributes attribute `json:"attributes"`
+}
+
+type seekingAlphaResponse struct {
+	Data []seekingAlphaNews `json:"data"`
+}
+
+type Article struct {
+	PublishedOn time.Time
+	Headline    string
+}
+
+const (
+	url       = "https://seeking-alpha.p.rapidapi.com/news/v2/list-by-symbol?size=5&id="
+	apiHeader = "X-RapidAPI-Key"
+	apiKey    = "61550de255msh906da11198a49e6p1fcb7djsnad675fd4be5d"
+)
+
+func fetchNews(ticker string) ([]Article, error) {
+	req, err := http.NewRequest(http.MethodGet, url+ticker, nil)
+
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	req.Header.Add(apiHeader, apiKey)
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		errorMsg := fmt.Errorf("Request failed with status code: %d", resp.StatusCode)
+		return nil, errorMsg
+	}
+
+	if resp.Body == nil {
+		fmt.Println("Response body is nil")
+		return nil, err
+	}
+
+	res := &seekingAlphaResponse{}
+	json.NewDecoder(resp.Body).Decode(res)
+
+	var articles []Article
+
+	for _, news := range res.Data {
+		art := Article{
+			PublishedOn: news.Attributes.PublishedOn,
+			Headline:    news.Attributes.Title,
+		}
+
+		articles = append(articles, art)
+	}
+
+	defer resp.Body.Close()
+	return articles, nil
+}
+
+func Deliver(filePath string, selections []Selection) error {
+
+	f, err := os.Create(filePath)
+
+	if err != nil {
+		return fmt.Errorf("Error creating file: %v", err)
+	}
+
+	defer f.Close()
+
+	encoder := json.NewEncoder(f)
+	err = encoder.Encode(selections)
+
+	if err != nil {
+		return fmt.Errorf("Error encoding selections: %v", err)
+	}
+
+	return nil
 }
 
 func main() {
@@ -102,7 +197,7 @@ func main() {
 		return
 	}
 
-	slices.DeleteFunc(stocks, func(stock Stock) bool {
+	stocks = slices.DeleteFunc(stocks, func(stock Stock) bool {
 		return math.Abs(stock.gap) < 0.1
 	})
 
@@ -111,11 +206,32 @@ func main() {
 	for _, stock := range stocks {
 		position := caculate(stock.gap, stock.openingPrice)
 
+		articles, err := fetchNews(stock.ticker)
+
+		if err != nil {
+			log.Printf("Error fetching news for %s: %v", stock.ticker, err)
+			continue
+		} else {
+			log.Printf("Successfully fetched %d news for %s", len(articles), stock.ticker)
+		}
+
 		selected := Selection{
 			Ticker:   stock.ticker,
 			Position: position,
+			Articles: articles,
 		}
 
 		selections = append(selections, selected)
+
+		outputPath := "./Analysis-Result.json"
+		err = Deliver(outputPath, selections)
+
+		if err != nil {
+			log.Printf("Error delivering selections: %v", err)
+			return
+		}
+
+		log.Printf("Successfully delivered selections for %s to %s \n", stock.ticker, outputPath)
+
 	}
 }
