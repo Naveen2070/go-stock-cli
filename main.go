@@ -222,16 +222,14 @@ func main() {
 		}
 
 		selections = append(selections, selected)
-
-		outputPath := "./Analysis-Result.json"
-		err = Deliver(outputPath, selections)
-
-		if err != nil {
-			log.Printf("Error delivering selections: %v", err)
-			return
-		}
-
-		log.Printf("Successfully delivered selections for %s to %s \n", stock.ticker, outputPath)
-
 	}
+	outputPath := "./Analysis-Result.json"
+	err = Deliver(outputPath, selections)
+
+	if err != nil {
+		log.Printf("Error delivering selections: %v", err)
+		return
+	}
+
+	log.Printf("Successfully delivered selections to %s \n", outputPath)
 }
